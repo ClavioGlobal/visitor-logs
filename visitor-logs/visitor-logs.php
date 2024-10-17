@@ -2,7 +2,7 @@
 /*
 Plugin Name: Visitor Logs
 Description: Tracks the IP addresses of visitors and stores them in the WordPress database.
-Version: 1.2
+Version: 1.3
 Author: Clavio Global
 GitHub Plugin URI: https://github.com/ClavioGlobal/visitor-logs
 GitHub Branch: main
@@ -63,6 +63,7 @@ function vl_display_logs() {
     }
     echo '</tbody>';
     echo '</table>';
+    echo '<a href="' . admin_url('admin.php?page=export-logs') . '" class="button">Export to Excel</a>';
     echo '</div>';
 }
 
@@ -117,50 +118,3 @@ function vl_add_admin_menu() {
     add_submenu_page('visitor-logs', 'Export Logs', 'Export to Excel', 'manage_options', 'export-logs', 'vl_export_to_excel');
 }
 add_action('admin_menu', 'vl_add_admin_menu');
-
-// Add GitHub Updater support
-add_filter('pre_set_site_transient_update_plugins', 'vl_check_for_update');
-add_filter('plugins_api', 'vl_plugin_info', 10, 3);
-
-// Check for updates from GitHub
-function vl_check_for_update($transient) {
-    if (empty($transient->checked)) {
-        return $transient;
-    }
-
-    // Fetch the latest release information from GitHub
-    $response = wp_remote_get('https://api.github.com/repos/yourusername/visitor-logs/releases/latest');
-
-    if (is_wp_error($response)) {
-        return $transient;
-    }
-
-    $release = json_decode(wp_remote_retrieve_body($response));
-
-    if (version_compare($release->tag_name, PLUGIN_VERSION, '>')) {
-        $transient->response[plugin_basename(__FILE__)] = (object) array(
-            'slug' => 'visitor-logs',
-            'plugin' => plugin_basename(__FILE__),
-            'new_version' => $release->tag_name,
-            'url' => $release->html_url,
-        );
-    }
-
-    return $transient;
-}
-
-// Provide plugin info for updates
-function vl_plugin_info($false, $action, $response) {
-    if ($action !== 'plugin_information' || !isset($response->slug) || $response->slug !== 'visitor-logs') {
-        return $false;
-    }
-
-    return (object) array(
-        'name' => 'Visitor Logs',
-        'slug' => 'visitor-logs',
-        'version' => '1.2',
-        'author' => 'Clavio Global',
-        'homepage' => 'https://github.com/yourusername/visitor-logs',
-        'description' => 'Tracks the IP addresses of visitors and stores them in the WordPress database.',
-    );
-}
