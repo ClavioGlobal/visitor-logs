@@ -1,132 +1,83 @@
 <?php
-
 /*
 Plugin Name: Visitor Logs
 Description: Tracks the IP addresses of visitors and stores them in the WordPress database.
-Version: 1.1
+Version: 1.2
 Author: Clavio Global
 GitHub Plugin URI: https://github.com/ClavioGlobal/visitor-logs
 GitHub Branch: main
 */
 
-// Hook to record IP when the site is visited
-add_action('wp', 'track_visitor_ip');
-
-function track_visitor_ip() {
-    global $wpdb;
-
-    // Get visitor IP
-    $ip_address = $_SERVER['REMOTE_ADDR'];
-
-    // Table name (uses the WordPress table prefix)
-    $table_name = $wpdb->prefix . 'visitor_logs';
-
-    // Check if the IP is already stored in the database
-    $existing_ip = $wpdb->get_var($wpdb->prepare("SELECT ip_address FROM $table_name WHERE ip_address = %s", $ip_address));
-
-    // If IP doesn't exist, store it
-    if (!$existing_ip) {
-        $wpdb->insert(
-            $table_name,
-            array(
-                'ip_address' => $ip_address,
-                'visit_time' => current_time('mysql')
-            )
-        );
-    }
+// Exit if accessed directly
+if (!defined('ABSPATH')) {
+    exit;
 }
 
-// Function to create a database table when the plugin is activated
-function create_visitor_logs_table() {
+// Function to create the database table on plugin activation
+function vl_create_table() {
     global $wpdb;
 
-    $table_name = $wpdb->prefix . 'visitor_logs'; // Use WordPress table prefix for compatibility
+    $table_name = $wpdb->prefix . 'visitor_logs';
     $charset_collate = $wpdb->get_charset_collate();
 
-    // SQL to create the table
-    $sql = "CREATE TABLE $table_name (
+    $sql = "CREATE TABLE IF NOT EXISTS $table_name (
         id mediumint(9) NOT NULL AUTO_INCREMENT,
-        ip_address varchar(55) NOT NULL,
-        visit_time datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
-        PRIMARY KEY  (id)
+        ip_address varchar(100) NOT NULL,
+        visit_time datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        PRIMARY KEY (id)
     ) $charset_collate;";
 
-    // Use the WordPress function dbDelta to safely create the table
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql);
 }
 
-// Hook to run the function when the plugin is activated
-register_activation_hook(__FILE__, 'create_visitor_logs_table');
+// Function to log visitor IP address
+function vl_log_visitor() {
+    global $wpdb;
 
-// Add an admin menu item to view the tracked IPs
-add_action('admin_menu', 'visitor_logs_menu');
+    $ip_address = $_SERVER['REMOTE_ADDR'];
+    $table_name = $wpdb->prefix . 'visitor_logs';
 
-function visitor_logs_menu() {
-    add_menu_page('Visitor Logs', 'Visitor Logs', 'manage_options', 'visitor-logs', 'visitor_logs_page');
+    // Insert the IP address into the database
+    $wpdb->insert($table_name, array('ip_address' => $ip_address));
 }
 
-// Display the IPs in the admin dashboard and add the Export to Excel button
-function visitor_logs_page() {
+// Function to display logs in admin area
+function vl_display_logs() {
     global $wpdb;
 
     $table_name = $wpdb->prefix . 'visitor_logs';
-    $results = $wpdb->get_results("SELECT * FROM $table_name");
+    $logs = $wpdb->get_results("SELECT * FROM $table_name ORDER BY visit_time DESC");
 
     echo '<div class="wrap">';
-    echo '<h2>Tracked Visitor IP Addresses</h2>';
-    echo '<table class="widefat fixed" cellspacing="0">';
+    echo '<h2>Visitor Logs</h2>';
+    echo '<table class="widefat">';
     echo '<thead><tr><th>ID</th><th>IP Address</th><th>Visit Time</th></tr></thead>';
     echo '<tbody>';
-
-    foreach ($results as $row) {
+    foreach ($logs as $log) {
         echo '<tr>';
-        echo '<td>' . esc_html($row->id) . '</td>';
-        echo '<td>' . esc_html($row->ip_address) . '</td>';
-        echo '<td>' . esc_html($row->visit_time) . '</td>';
+        echo '<td>' . esc_html($log->id) . '</td>';
+        echo '<td>' . esc_html($log->ip_address) . '</td>';
+        echo '<td>' . esc_html($log->visit_time) . '</td>';
         echo '</tr>';
     }
-
     echo '</tbody>';
     echo '</table>';
-
-    // Export to Excel Button
-    echo '<form method="post" action="">';
-    echo '<input type="submit" name="export_to_excel" class="button button-primary" value="Export to Excel">';
-    echo '</form>';
-
-    // Handle the Export button action
-    if (isset($_POST['export_to_excel'])) {
-        export_visitor_logs_to_excel();
-    }
-
     echo '</div>';
 }
 
-// Function to export the logs to Excel
-function export_visitor_logs_to_excel() {
+// Function to export logs to Excel
+function vl_export_to_excel() {
     global $wpdb;
 
-    // Manually include necessary PhpSpreadsheet classes
-    require_once plugin_dir_path(__FILE__) . 'vendor/PhpSpreadsheet/src/PhpSpreadsheet/Spreadsheet.php';
-    require_once plugin_dir_path(__FILE__) . 'vendor/PhpSpreadsheet/src/PhpSpreadsheet/Writer/Xlsx.php';
-    require_once plugin_dir_path(__FILE__) . 'vendor/PhpSpreadsheet/src/PhpSpreadsheet/Cell/Cell.php';
-    require_once plugin_dir_path(__FILE__) . 'vendor/PhpSpreadsheet/src/PhpSpreadsheet/Cell/Coordinate.php';
-    require_once plugin_dir_path(__FILE__) . 'vendor/PhpSpreadsheet/src/PhpSpreadsheet/Cell/DataType.php';
-    require_once plugin_dir_path(__FILE__) . 'vendor/PhpSpreadsheet/src/PhpSpreadsheet/Worksheet/Worksheet.php';
-    require_once plugin_dir_path(__FILE__) . 'vendor/PhpSpreadsheet/src/PhpSpreadsheet/Worksheet/Row.php';
-    require_once plugin_dir_path(__FILE__) . 'vendor/PhpSpreadsheet/src/PhpSpreadsheet/Worksheet/Column.php';
-    require_once plugin_dir_path(__FILE__) . 'vendor/PhpSpreadsheet/src/PhpSpreadsheet/Worksheet/Dimension.php';
-
-    // Use PhpSpreadsheet classes
-    use PhpOffice\PhpSpreadsheet\Spreadsheet;
-    use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+    // Require PhpSpreadsheet classes
+    require_once plugin_dir_path(__FILE__) . 'vendor/PhpSpreadsheet/src/Bootstrap.php';
 
     $table_name = $wpdb->prefix . 'visitor_logs';
-    $results = $wpdb->get_results("SELECT * FROM $table_name", ARRAY_A);
+    $logs = $wpdb->get_results("SELECT * FROM $table_name");
 
-    // Create a new spreadsheet
-    $spreadsheet = new Spreadsheet();
+    // Create new Spreadsheet object
+    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
     $sheet = $spreadsheet->getActiveSheet();
 
     // Set column headers
@@ -134,22 +85,82 @@ function export_visitor_logs_to_excel() {
     $sheet->setCellValue('B1', 'IP Address');
     $sheet->setCellValue('C1', 'Visit Time');
 
-    // Populate rows with data
-    $row_num = 2;
-    foreach ($results as $row) {
-        $sheet->setCellValue('A' . $row_num, $row['id']);
-        $sheet->setCellValue('B' . $row_num, $row['ip_address']);
-        $sheet->setCellValue('C' . $row_num, $row['visit_time']);
-        $row_num++;
+    // Add data to the sheet
+    $row = 2; // Start from the second row
+    foreach ($logs as $log) {
+        $sheet->setCellValue('A' . $row, $log->id);
+        $sheet->setCellValue('B' . $row, $log->ip_address);
+        $sheet->setCellValue('C' . $row, $log->visit_time);
+        $row++;
     }
 
-    // Set HTTP headers for file download
+    // Set headers for the download
     header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    header('Content-Disposition: attachment; filename="visitor_logs.xlsx"');
+    header('Content-Disposition: attachment;filename="visitor_logs.xlsx"');
+    header('Cache-Control: max-age=0');
 
-    // Write the Excel file and output it for download
-    $writer = new Xlsx($spreadsheet);
+    // Write the file to output
+    $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
     $writer->save('php://output');
+    exit;
+}
 
-    exit; // Ensure no further processing
+// Hook the activation function
+register_activation_hook(__FILE__, 'vl_create_table');
+
+// Hook the logging function to 'init'
+add_action('init', 'vl_log_visitor');
+
+// Create an admin menu for the plugin
+function vl_add_admin_menu() {
+    add_menu_page('Visitor Logs', 'Visitor Logs', 'manage_options', 'visitor-logs', 'vl_display_logs');
+    add_submenu_page('visitor-logs', 'Export Logs', 'Export to Excel', 'manage_options', 'export-logs', 'vl_export_to_excel');
+}
+add_action('admin_menu', 'vl_add_admin_menu');
+
+// Add GitHub Updater support
+add_filter('pre_set_site_transient_update_plugins', 'vl_check_for_update');
+add_filter('plugins_api', 'vl_plugin_info', 10, 3);
+
+// Check for updates from GitHub
+function vl_check_for_update($transient) {
+    if (empty($transient->checked)) {
+        return $transient;
+    }
+
+    // Fetch the latest release information from GitHub
+    $response = wp_remote_get('https://api.github.com/repos/yourusername/visitor-logs/releases/latest');
+
+    if (is_wp_error($response)) {
+        return $transient;
+    }
+
+    $release = json_decode(wp_remote_retrieve_body($response));
+
+    if (version_compare($release->tag_name, PLUGIN_VERSION, '>')) {
+        $transient->response[plugin_basename(__FILE__)] = (object) array(
+            'slug' => 'visitor-logs',
+            'plugin' => plugin_basename(__FILE__),
+            'new_version' => $release->tag_name,
+            'url' => $release->html_url,
+        );
+    }
+
+    return $transient;
+}
+
+// Provide plugin info for updates
+function vl_plugin_info($false, $action, $response) {
+    if ($action !== 'plugin_information' || !isset($response->slug) || $response->slug !== 'visitor-logs') {
+        return $false;
+    }
+
+    return (object) array(
+        'name' => 'Visitor Logs',
+        'slug' => 'visitor-logs',
+        'version' => '1.2',
+        'author' => 'Clavio Global',
+        'homepage' => 'https://github.com/yourusername/visitor-logs',
+        'description' => 'Tracks the IP addresses of visitors and stores them in the WordPress database.',
+    );
 }
